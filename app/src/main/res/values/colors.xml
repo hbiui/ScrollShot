@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="scrollshot_bg">#fff2f2f7</color>
+    <color name="scrollshot_blue">#ff007aff</color>
+    <color name="scrollshot_blue_dark">#ff0062cc</color>
+    <color name="scrollshot_card_bg">#ffffffff</color>
+    <color name="scrollshot_green">#ff34c759</color>
+    <color name="ss_blue_soft">#ffedf4ff</color>
+    <color name="ss_card">#ffffffff</color>
+    <color name="ss_chevron">#ffa9b6cc</color>
+    <color name="ss_line">#ffe9eff9</color>
+    <color name="ss_muted">#ff6c7a96</color>
+    <color name="ss_navy">#ff0f1b3d</color>
+    <color name="ss_on_blue">#ffffffff</color>
+    <color name="ss_orange">#ffff9500</color>
+    <color name="ss_pill_ok_bg">#ffe7f7ee</color>
+    <color name="ss_pill_ok_text">#ff12b76a</color>
+    <color name="ss_pill_warn_bg">#fffff2e4</color>
+    <color name="ss_pill_warn_text">#ffff8a3d</color>
+    <color name="ss_red">#ffff3b30</color>
+    <color name="ss_ripple_dark">#14000000</color>
+    <color name="ss_ripple_light">#33ffffff</color>
+    <color name="ss_separator">#ffe5e5ea</color>
+    <color name="ss_text">#ff1c1c1e</color>
+    <color name="ss_text_secondary">#ff6e6e73</color>
+    <color name="ss_text_tertiary">#ff8e8e93</color>
+</resources>
