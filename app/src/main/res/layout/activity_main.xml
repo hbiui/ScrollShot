@@ -92,6 +92,7 @@
                     <TextView android:layout_width="fill_parent" android:layout_height="wrap_content" android:text="诊断模式" android:textSize="17.0sp" android:textStyle="bold" android:textColor="@color/ss_navy" />
                     <TextView android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" android:text="保存每帧画面与检测日志，排查问题时开启" android:textSize="13.0sp" android:textColor="@color/ss_muted" android:maxLines="1" android:ellipsize="end" />
                 </LinearLayout>
+                <ImageButton android:id="@id/btnClearDiag" android:layout_width="40.0dip" android:layout_height="40.0dip" android:layout_marginEnd="6.0dip" android:padding="8.0dip" android:src="@drawable/ic_delete" android:background="?android:attr/selectableItemBackgroundBorderless" android:contentDescription="删除 Download/ScrollShot 文件夹" />
                 <com.scrollshot.SsSwitch android:id="@id/chkDiagnostics" android:layout_width="52.0dip" android:layout_height="32.0dip" android:contentDescription="诊断模式开关" />
             </LinearLayout>
         </LinearLayout>

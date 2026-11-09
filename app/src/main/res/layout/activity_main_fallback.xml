@@ -12,6 +12,7 @@
         <Button android:id="@id/btnManual" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="手动拼接：选多张截图自动拼" />
         <Button android:id="@id/btnLast" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="查看上一张长图" />
         <CheckBox android:textSize="13.0sp" android:id="@id/chkDiagnostics" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:text="诊断模式（保存每帧截图和检测日志到 Download/ScrollShot/debug，供排查问题；平时关着即可）" />
+        <Button android:id="@id/btnClearDiag" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="删除 Download/ScrollShot 文件夹（诊断帧图与日志）" />
         <TextView android:textSize="12.0sp" android:id="@id/tvLog" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:text="" />
     </LinearLayout>
 </ScrollView>

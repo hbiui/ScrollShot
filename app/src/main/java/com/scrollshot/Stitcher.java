@@ -1557,6 +1557,132 @@ public class Stitcher {
      * its height so the caller can re-stitch with overlap + p.
      * Only called for high-overlap (page-bottom-like) joins.
      */
+    /**
+     * v1.39.47: corroboration score for a PROPOSED overlap that
+     * the matcher itself did not certify (the session step-prior
+     * fallback in CaptureService). Compares a's last `overlap`
+     * rows with b's first `overlap` rows directly and returns
+     * the MEDIAN per-row gray difference (rows sampled every 3,
+     * x sampled ~160 across). A genuinely overlapping pair
+     * agrees almost everywhere, so the median row is near-zero
+     * even when a video card or a rotating banner poisons a
+     * minority of rows; unrelated content (a true content gap,
+     * or a prior that is off by a whole item) disagrees on most
+     * rows and reads high. Returns -1 when the proposed overlap
+     * cannot be evaluated. Calibrated offline on captures
+     * 43/65/67 before shipping (see Probe68).
+     */
+    public static double overlapZoneMedianDiff(Bitmap a, Bitmap b, int overlap) {
+        if (a == null || b == null || overlap <= 0) return -1;
+        int w = Math.min(a.getWidth(), b.getWidth());
+        int ha = a.getHeight(), hb = b.getHeight();
+        if (overlap > ha || overlap > hb || w <= 0) return -1;
+        int xStep = Math.max(1, w / 160);
+        java.util.ArrayList<Double> rows = new java.util.ArrayList<>();
+        for (int y = 0; y < overlap; y += 3) {
+            long sum = 0;
+            int n = 0;
+            int ya = ha - overlap + y;
+            for (int x = 0; x < w; x += xStep) {
+                sum += Math.abs(grayOf(a.getPixel(x, ya)) - grayOf(b.getPixel(x, y)));
+                n++;
+            }
+            if (n > 0) rows.add((double) sum / n);
+        }
+        if (rows.isEmpty()) return -1;
+        java.util.Collections.sort(rows);
+        return rows.get(rows.size() / 2);
+    }
+
+    /**
+     * v1.39.50: fraction of sampled zone rows whose mean gray
+     * difference is at most 12 - the STATIC-ROW AGREEMENT of a
+     * proposed overlap. Sampling mirrors overlapZoneMedianDiff
+     * (rows every 3, ~160 columns). A row of genuinely shared
+     * content agrees almost exactly; a row inside a playing
+     * video or an unrelated region does not. The fraction -
+     * not the median - is the motion-tolerant statistic: a
+     * video-heavy but real overlap still has its static
+     * majority voting (titles, images, source lines), while a
+     * true content gap has almost no agreeing rows anywhere.
+     */
+    private static double zoneRowAgreement(Bitmap a, Bitmap b, int overlap) {
+        if (a == null || b == null || overlap <= 0) return -1;
+        int w = Math.min(a.getWidth(), b.getWidth());
+        int ha = a.getHeight(), hb = b.getHeight();
+        if (overlap > ha || overlap > hb || w <= 0) return -1;
+        int xStep = Math.max(1, w / 160);
+        int agree = 0, total = 0;
+        for (int y = 0; y < overlap; y += 3) {
+            long sum = 0;
+            int n = 0;
+            int ya = ha - overlap + y;
+            for (int x = 0; x < w; x += xStep) {
+                sum += Math.abs(grayOf(a.getPixel(x, ya)) - grayOf(b.getPixel(x, y)));
+                n++;
+            }
+            if (n > 0) {
+                total++;
+                if ((double) sum / n <= 12.0) agree++;
+            }
+        }
+        return total == 0 ? -1 : (double) agree / total;
+    }
+
+    /**
+     * v1.39.50: verify a step-prior fallback by AGREEMENT SCAN
+     * instead of the v1.39.47 +-6 median probe. The joins that
+     * reach the prior are disproportionately atypical steps -
+     * capture 70/71's step came up ~185px short, putting the
+     * truth ~750px from the prior, far outside any +-6 window,
+     * and their overlap zones were dominated by two playing
+     * videos, so the whole-zone median read 57-78 and the
+     * healthy join was rejected. The scan evaluates the
+     * static-row agreement over every overlap whose implied
+     * step lies in [0.45x, 1.60x] the session median step
+     * (stride 8, refined +-8 by 2) and accepts the argmax when
+     * its agreement reaches 0.20. Offline calibration
+     * (ProbeVerify, dump scale): capture 70/71 accept at the
+     * true overlap (agreement 0.33), capture 43's momentum
+     * outlier accepts at its true overlap (0.31), capture 67's
+     * healthy prior accepts at the prior (0.57), a WeChat pair
+     * accepts at its true overlap (0.78), and capture 65's
+     * true content gap reaches at most 0.08 ANYWHERE in the
+     * scan - the gate sits between the weakest accept (0.31)
+     * and the strongest reject (0.08) with >1.5x margin both
+     * ways. Returns {acceptedOverlap or -1, bestAgreement x1000,
+     * bestOverlap}.
+     */
+    public static int[] verifyStepPrior(Bitmap a, Bitmap b, int priorOverlap, int medianStep) {
+        int failBest = -1;
+        double failFrac = -1;
+        if (a == null || b == null || medianStep <= 0) return new int[]{-1, -1, -1};
+        int hB = b.getHeight();
+        int stepLo = Math.max(60, (int) (0.45 * medianStep));
+        int stepHi = (int) (1.60 * medianStep);
+        int ovHi = Math.min((int) (hB * 0.95), hB - stepLo);
+        int ovLo = Math.max(Math.max(24, (int) (hB * 0.05)), hB - stepHi);
+        if (ovLo > ovHi) return new int[]{-1, -1, -1};
+        int bestOv = -1;
+        double bestF = -1;
+        for (int ov = ovLo; ov <= ovHi; ov += 8) {
+            double f = zoneRowAgreement(a, b, ov);
+            if (f > bestF) { bestF = f; bestOv = ov; }
+        }
+        if (bestOv > 0) {
+            for (int ov = Math.max(ovLo, bestOv - 8); ov <= Math.min(ovHi, bestOv + 8); ov += 2) {
+                double f = zoneRowAgreement(a, b, ov);
+                if (f > bestF) { bestF = f; bestOv = ov; }
+            }
+        }
+        failBest = bestOv;
+        failFrac = bestF;
+        if (bestOv > 0 && bestF >= 0.20) {
+            return new int[]{bestOv, (int) Math.round(bestF * 1000), bestOv};
+        }
+        return new int[]{-1, (int) Math.round(Math.max(0, failFrac) * 1000), failBest};
+    }
+
     public static int duplicateBlockHeight(Bitmap a, Bitmap b, int overlap) {
         if (a == null || b == null) return 0;
         if (a.getWidth() != b.getWidth()) return 0;
@@ -1564,7 +1690,18 @@ public class Stitcher {
         int hA = a.getHeight();
         int hB = b.getHeight();
         if (w <= 0 || overlap < 0 || overlap >= hB) return 0;
-        int maxP = Math.min(360, Math.min(hA, hB - overlap - 32));
+        // v1.39.45: the cap was 360, but capture 52's duplicated
+        // block measured 452 device px (a full history card):
+        // at the page end the true step collapsed to ~68 px,
+        // the matcher aliased one card up on the self-similar
+        // list, and the guard's ceiling sat below the very
+        // block it exists to catch. The ceiling is now half
+        // the frame height - the largest block that can still
+        // be a duplicate of the canvas tail while leaving a
+        // real contribution below it. Offline A/B at device
+        // scale: fires 454 on capture 52's last join, 0 on all
+        // 25 healthy joins of captures 49/50/52.
+        int maxP = Math.min(hB / 2, Math.min(hA, hB - overlap - 32));
         int minP = 80;
         if (maxP < minP) return 0;
         int stepX = Math.max(3, w / 200);
@@ -1672,51 +1809,491 @@ public class Stitcher {
         int[] rowA = new int[w];
         int[] rowB = new int[w];
         double[] diff = new double[overlap];
+        double[] detB = new double[overlap];
+        int[] grayB = new int[w / stepX + 2];
         for (int r = 0; r < overlap; r++) {
             a.getPixels(rowA, 0, w, 0, hA - overlap + r, w, 1);
             b.getPixels(rowB, 0, w, 0, r, w, 1);
-            double sum = 0;
-            int n = 0;
+            int gn = 0;
+            // Row agreement = MEDIAN over 6 vertical strips of
+            // the strips' mean differences (the same consensus
+            // idea the matcher itself uses). A localized occluder
+            // covering a strip or two - a system volume HUD at
+            // the screen edge is the proven case - is outvoted
+            // instead of inflating the whole row's mean.
+            double[] stripSum = new double[6];
+            int[] stripN = new int[6];
             for (int x = 0; x < w; x += stepX) {
                 int ca = rowA[x], cb = rowB[x];
                 int ga = (int) (0.299 * ((ca >> 16) & 255) + 0.587 * ((ca >> 8) & 255)
                         + 0.114 * (ca & 255));
                 int gb = (int) (0.299 * ((cb >> 16) & 255) + 0.587 * ((cb >> 8) & 255)
                         + 0.114 * (cb & 255));
-                sum += Math.abs(ga - gb);
-                n++;
+                grayB[gn++] = gb;
+                int strip = Math.min(5, (x * 6) / w);
+                stripSum[strip] += Math.abs(ga - gb);
+                stripN[strip]++;
             }
-            diff[r] = sum / Math.max(1, n);
-        }
-        // Windowed agreement (+-4 rows) around each candidate row.
-        double[] win = new double[overlap];
-        for (int r = 0; r < overlap; r++) {
-            double sum = 0;
-            int n = 0;
-            for (int k = Math.max(0, r - 4); k <= Math.min(overlap - 1, r + 4); k++) {
-                sum += diff[k];
-                n++;
+            double[] stripMean = new double[6];
+            int strips = 0;
+            for (int j = 0; j < 6; j++) {
+                if (stripN[j] > 0) stripMean[strips++] = stripSum[j] / stripN[j];
             }
-            win[r] = sum / n;
+            java.util.Arrays.sort(stripMean, 0, strips);
+            diff[r] = strips > 0 ? stripMean[strips / 2] : 0;
+            double det = 0;
+            for (int i = 0; i + 1 < gn; i++) det += Math.abs(grayB[i + 1] - grayB[i]);
+            detB[r] = gn > 1 ? det / (gn - 1) : 0;
         }
-        double nominal = win[overlap - 1];
+        // Agreement is DETAIL-SCORED (v1.39.13): a splice row is
+        // judged only by the rows around it whose incoming frame
+        // row carries real horizontal detail (text / sharp
+        // edges). Flat rows abstain instead of voting "perfect":
+        // they are exactly what fooled the plain windowed mean
+        // twice - white chat stretches whose sparse structured
+        // rows were out of phase (capture 16), and a transient
+        // system volume HUD, flat gray over one frame's seam
+        // zone, which inflated the nominal seam past the gate
+        // and got its own pixels spliced into the result
+        // (capture 17). A detailed nominal seam that already
+        // agrees is trusted as-is; moves remain possible for
+        // genuinely torn (e.g. playing-video) seams, whose rows
+        // are detailed and disagree.
+        double nominal = seamScore(diff, detB, overlap, overlap);
+        if (nominal == Double.MAX_VALUE || nominal <= 6.0) return overlap;
+        // FLAT-CUT PREFERENCE (v1.39.15): when the disagreement
+        // around the nominal splice is a phase DRIFT on static
+        // content (capture 18: the two frames' rows drift ~2px
+        // apart across the seam zone, diffs ramping 0 -> 19 down
+        // a text band), NO cut through the band can be clean -
+        // the agreement scan below picks the ramp's first row,
+        // splitting a text line's glyphs between the two phases
+        // (ghosted digits in the result). A cut through rows
+        // that are flat in b AND agree between the frames
+        // crosses no element at all, so nothing can ghost -
+        // prefer the closest such cut within 96 rows above the
+        // nominal. The agreement guard (diff < 3) keeps a flat
+        // but DIFFERENT region (a gray panel over white rows)
+        // from qualifying. Genuinely dynamic content (a playing
+        // video) has no flat rows and falls through to the
+        // agreement scan unchanged.
+        for (int sRow = overlap - 1;
+             sRow >= Math.max(8, Math.max(minSeamRow, overlap - 96)); sRow--) {
+            if (detB[sRow] < 3.0 && detB[sRow - 1] < 3.0
+                    && diff[sRow] < 3.0 && diff[sRow - 1] < 3.0) {
+                return sRow;
+            }
+        }
         int best = overlap;
         double bestScore = Double.MAX_VALUE;
-        // The seam row s splices between b rows s-1 and s; its local
-        // agreement is win[s-1]. A small distance penalty keeps the
-        // seam near the nominal position unless a much better row
-        // exists further up.
         for (int sRow = Math.max(8, minSeamRow); sRow < overlap; sRow++) {
-            double cand = win[sRow - 1] + 0.01 * (overlap - sRow);
+            double sc = seamScore(diff, detB, overlap, sRow);
+            if (sc == Double.MAX_VALUE) continue;
+            double cand = sc + 0.01 * (overlap - sRow);
             if (cand < bestScore) {
                 bestScore = cand;
                 best = sRow;
             }
         }
-        if (best < overlap && win[best - 1] <= 6.0 && bestScore < nominal * 0.5) {
+        if (best < overlap && seamScore(diff, detB, overlap, best) <= 6.0
+                && bestScore < nominal * 0.5) {
             return best;
         }
         return overlap;
+    }
+
+    // Detail-scored agreement for a splice at row s of b: the
+    // trimmed (best 70%) mean of the plain row diffs over the
+    // detailed rows (detB >= 6.0) in the +-4 window around the
+    // splice row. MAX_VALUE (abstain) when the window holds
+    // fewer than 4 detailed rows - nothing there can certify
+    // either a tear or a heal.
+    private static double seamScore(double[] diff, double[] detB, int overlap, int s) {
+        int lo = Math.max(0, s - 5), hi = Math.min(overlap - 1, s + 3);
+        double[] vals = new double[hi - lo + 1];
+        int cnt = 0;
+        for (int k = lo; k <= hi; k++) {
+            if (detB[k] >= 6.0) vals[cnt++] = diff[k];
+        }
+        if (cnt < 4) return Double.MAX_VALUE;
+        java.util.Arrays.sort(vals, 0, cnt);
+        int keep = Math.max(1, (int) Math.ceil(cnt * 0.7));
+        double sum = 0;
+        for (int i = 0; i < keep; i++) sum += vals[i];
+        return sum / keep;
+    }
+
+    // ---- Transient edge-panel cover check (v1.39.17) ------------
+    // Detects a transient system panel (the volume HUD is the
+    // proven case) that appeared at the frame's right edge
+    // between two consecutive grabs: a solid, non-white block
+    // anchored at the right edge covering rows that carried
+    // ordinary content in the previous frame. Inputs are
+    // 320px-wide thumbnails of the full frames; the middle
+    // 80% of rows are scanned (the panel lives mid-frame; the
+    // status/nav zones are excluded). Calibrated on real
+    // captures at this thumbnail scale: panel frames score
+    // covered 2.7-22.6% of rows with runs of 2-45 sampled
+    // rows (the low end is a panel caught mid-animation, only
+    // its leading edge on screen); clean scrolling pairs
+    // score <= 1.1% with runs <= 1. A cover means the user
+    // pressed a system key mid-capture - CaptureService treats
+    // it as a stop (and retakes the frame clean), which also
+    // covers the case the volume-change signal cannot see:
+    // a volume-down press at minimum volume changes nothing.
+    public static boolean panelCovered(Bitmap prevThumb, Bitmap curThumb) {
+        if (prevThumb == null || curThumb == null) return false;
+        int w = curThumb.getWidth();
+        int h = curThumb.getHeight();
+        if (prevThumb.getWidth() != w || prevThumb.getHeight() != h) return false;
+        if (w < 80 || h < 80) return false;
+        int y0 = h / 10, y1 = h - h / 10;
+        int covered = 0, total = 0, run = 0, bestRun = 0;
+        for (int y = y0; y < y1; y += 2) {
+            total++;
+            boolean c = panelRowAt(curThumb, y) && !panelRowAt(prevThumb, y);
+            if (c) {
+                covered++;
+                run++;
+                if (run > bestRun) bestRun = run;
+            } else {
+                run = 0;
+            }
+        }
+        return total > 0 && covered * 1000 >= total * 25 && bestRun >= 2;
+    }
+
+    // Strong presence (v1.39.22; contiguity gate added
+    // v1.39.24): a FULL system panel in this frame - the
+    // mid-capture guard's and the final-frame verifier's
+    // test. Same wide row scan as panelPresent but with a
+    // high fraction gate (>= 8% of rows), a band cap (the
+    // longest run of qualifying rows must cover <= 70% of
+    // the scanned rows - chat pages' uniform background
+    // qualifies on ~100% and is excluded by the cap), and a
+    // CONTIGUITY gate: the longest run must reach >= 40
+    // sampled rows. Capture 25 taught the last one: clean
+    // news-feed frames with large light image areas (a
+    // white paper-texture banner) qualify on 9-26% of rows -
+    // as high as a real panel's 31-37% - but their runs
+    // break up at <= 30 sampled rows, while a real panel is
+    // one unbroken block of 53-74. Fraction alone cannot
+    // separate texture from panel; contiguity can. Slivers
+    // (~4%, runs ~3-5) deliberately stay below every gate
+    // here; the delta cover chain handles those.
+    public static boolean panelPresentStrong(Bitmap thumb) {
+        if (thumb == null) return false;
+        int w = thumb.getWidth();
+        int h = thumb.getHeight();
+        if (w < 80 || h < 80) return false;
+        int y0 = h / 10, y1 = h - h / 10;
+        int cnt = 0, total = 0, run = 0, bestRun = 0;
+        for (int y = y0; y < y1; y += 2) {
+            total++;
+            if (panelRowWide(thumb, y)) {
+                cnt++;
+                run++;
+                if (run > bestRun) bestRun = run;
+            } else {
+                run = 0;
+            }
+        }
+        return total > 0 && cnt * 100 >= total * 8
+                && bestRun * 100 <= total * 70 && bestRun >= 40;
+    }
+
+    // Inset-slab presence (v1.39.32): Honor's volume pill
+    // RESTS a few px short of the right edge. On chat pages
+    // the fraction/run presence tests are blind (the uniform
+    // background qualifies on every row: panelPresent fires
+    // on all chat frames, panelPresentStrong on none -
+    // capture 34), and the edge-anchored delta misses an
+    // inset pill entirely (capture 35's frame 16 was stitched
+    // with the pill inside). The remaining signature is
+    // geometric: a wide neutral run (panelRowWide sampling)
+    // whose RIGHT end stops inset (rightmost sample <= w-12)
+    // with both extent ends stable within 6 px, sustained
+    // over >= 30 sampled rows (~ the pill's height).
+    // Measured on real frames: pill frames chain 45-55
+    // (captures 21/34/35), clean frames of every surface
+    // <= 13 (capture 25's feed), glancing stop-grabs 21-22.
+    // Used only where a false fire costs a retake (the
+    // mid-capture guard and the final-frame verifier),
+    // never as a stop signal.
+    public static boolean panelInsetSlab(Bitmap thumb) {
+        if (thumb == null) return false;
+        int w = thumb.getWidth();
+        int h = thumb.getHeight();
+        if (w < 80 || h < 80) return false;
+        int y0 = h / 10, y1 = h - h / 10;
+        int chain = 0, bestChain = 0, pL = -9999, pR = -9999;
+        int[] ext = new int[3];
+        for (int y = y0; y < y1; y += 2) {
+            wideRunExtent(thumb, y, ext);
+            boolean inset = ext[0] >= 4 && ext[2] <= w - 12;
+            if (inset) {
+                if (chain > 0 && Math.abs(ext[1] - pL) <= 6
+                        && Math.abs(ext[2] - pR) <= 6) chain++;
+                else chain = 1;
+                pL = ext[1];
+                pR = ext[2];
+                if (chain > bestChain) bestChain = chain;
+            } else {
+                chain = 0;
+            }
+        }
+        return bestChain >= 30;
+    }
+
+    // Loose inset trigger (v1.39.33): capture 36's frame 18
+    // caught the pill MID-FADE - translucent, its run extent
+    // wobbling by more than the crisp test's 6 px tolerance,
+    // so the chain broke into fragments (max 15) and the
+    // frame was stitched with the pill's lower half (the
+    // "..." button) inside. Counting inset-qualifying rows
+    // WITHOUT the extent-stability requirement reads 34 on
+    // that frame and 68-88 on crisp pill frames - but 54-67
+    // on clean news-feed frames (photo areas), so the count
+    // alone cannot trigger anywhere. On CHAT-like pages the
+    // wide scan qualifies on >= 80% of rows (the uniform
+    // background - the same property that blinds the
+    // fraction tests), and there the clean frames read ZERO
+    // inset rows (captures 34/35/36, all frames). So: this
+    // trigger fires only on chat-like pages, and even then
+    // it only buys a same-position temporal probe (see
+    // insetRegionChange) - a stable region (a fixed UI
+    // element, a photo chat background) keeps its frame.
+    public static boolean panelInsetLoose(Bitmap thumb) {
+        if (thumb == null) return false;
+        int w = thumb.getWidth();
+        int h = thumb.getHeight();
+        if (w < 80 || h < 80) return false;
+        int y0 = h / 10, y1 = h - h / 10;
+        int total = 0, qual = 0, inset = 0;
+        int[] ext = new int[3];
+        for (int y = y0; y < y1; y += 2) {
+            total++;
+            wideRunExtent(thumb, y, ext);
+            if (ext[0] >= 4) {
+                qual++;
+                if (ext[2] <= w - 12) inset++;
+            }
+        }
+        return total > 0 && qual * 100 >= total * 80 && inset >= 25;
+    }
+
+    // Mean absolute luma change between two same-position
+    // thumbnails, measured over the rows where CUR carries
+    // an inset slab (its wide run ends inset) and over those
+    // runs' span. A transient panel fades or slides within
+    // a second, so its rows change materially; a fixed
+    // element or a photo background is pixel-stable. -1
+    // when cur has no inset rows. Threshold in the caller
+    // (4.0, the panelBandStability change scale).
+    public static float insetRegionChange(Bitmap cur, Bitmap probe) {
+        if (cur == null || probe == null) return -1f;
+        int w = cur.getWidth();
+        int h = cur.getHeight();
+        if (w < 80 || h < 80 || probe.getWidth() != w || probe.getHeight() != h) return -1f;
+        int y0 = h / 10, y1 = h - h / 10;
+        int[] ext = new int[3];
+        double sum = 0;
+        long n = 0;
+        for (int y = y0; y < y1; y += 2) {
+            wideRunExtent(cur, y, ext);
+            if (ext[0] < 4 || ext[2] > w - 12) continue;
+            for (int x = Math.max(0, ext[1]); x <= ext[2]; x += 3) {
+                sum += Math.abs(grayOf(cur.getPixel(x, y)) - grayOf(probe.getPixel(x, y)));
+                n++;
+            }
+        }
+        return n == 0 ? -1f : (float) (sum / n);
+    }
+
+    // Longest neutral mid-gray run in the rightmost quarter
+    // of a row (exactly panelRowWide's sampling), reporting
+    // its extent: out = {runSamples, leftmostX, rightmostX};
+    // run 0 (and -1 extents) when no sample qualifies.
+    private static void wideRunExtent(Bitmap b, int y, int[] out) {
+        int w = b.getWidth();
+        int x0 = w - (w / 4);
+        int run = 0, best = 0, bL = -1, bR = -1, rStart = -1, prevLevel = -1000;
+        for (int x = w - 3; x >= x0; x -= 3) {
+            int p = b.getPixel(x, y);
+            int r = (p >> 16) & 255, g = (p >> 8) & 255, bl = p & 255;
+            int level = (int) (0.299 * r + 0.587 * g + 0.114 * bl);
+            boolean neutral = Math.abs(r - g) <= 12 && Math.abs(g - bl) <= 12;
+            boolean inLevel = level >= 170 && level <= 248;
+            if (neutral && inLevel && Math.abs(level - prevLevel) <= 10) {
+                if (run == 0) rStart = x;
+                run++;
+            } else if (neutral && inLevel) {
+                run = 1;
+                rStart = x;
+            } else {
+                run = 0;
+            }
+            if (run > best) {
+                best = run;
+                bL = x;
+                bR = rStart;
+            }
+            prevLevel = (neutral && inLevel) ? level : -1000;
+        }
+        out[0] = best;
+        out[1] = bL;
+        out[2] = bR;
+    }
+
+    // Absolute presence form of the cover check (v1.39.18,
+    // row test replaced in v1.39.19): does THIS frame contain
+    // a system-panel block? Used to verify a retaken final
+    // frame before it is stitched - the timed wait alone is
+    // not proof the panel expired.
+    //
+    // The two panel tests are deliberately different. The
+    // DELTA stop detector (panelCovered) is edge-anchored and
+    // conservative: a false positive there STOPS a capture.
+    // This PRESENCE test serves a stopping capture, where a
+    // false positive only spends one bounded retake retry, so
+    // it is the sensitive form: the longest neutral mid-gray
+    // run anywhere in the rightmost quarter of the row. The
+    // wide scan is required, not optional: Honor's settled
+    // volume pill FLOATS a few px short of the right edge
+    // (captures 20/21), so the edge-anchored row test reads
+    // ZERO qualifying rows on frames containing the full
+    // panel (capture 21, device-verified miss: the verified
+    // retake was accepted with the panel in it), while this
+    // scan reads 93/261 rows with a run of 62 on the same
+    // frame. Calibrated at thumbnail scale - panels: cap17
+    // f10 = 82 rows, cap20 f9 = 96, cap21 f10 = 93, the two
+    // mid-animation slivers = 11 each; clean list frames give
+    // <= 9 rows but never 2 in a row, so the run gate is what
+    // separates them.
+    public static boolean panelPresent(Bitmap thumb) {
+        if (thumb == null) return false;
+        int w = thumb.getWidth();
+        int h = thumb.getHeight();
+        if (w < 80 || h < 80) return false;
+        int y0 = h / 10, y1 = h - h / 10;
+        int cnt = 0, total = 0, run = 0, bestRun = 0;
+        for (int y = y0; y < y1; y += 2) {
+            total++;
+            if (panelRowWide(thumb, y)) {
+                cnt++;
+                run++;
+                if (run > bestRun) bestRun = run;
+            } else {
+                run = 0;
+            }
+        }
+        return total > 0 && cnt * 1000 >= total * 15 && bestRun >= 2;
+    }
+
+    // One row of the wide presence test: the longest run of
+    // near-equal NEUTRAL mid-gray samples (level 170-248,
+    // channels within 12 of each other, consecutive samples
+    // within 10) in the rightmost quarter of the row; a run
+    // of >= 4 samples (~12 thumbnail px) qualifies. Neutral
+    // excludes coloured content; the level band excludes
+    // white backgrounds and dark text.
+    private static boolean panelRowWide(Bitmap b, int y) {
+        int w = b.getWidth();
+        int x0 = w - (w / 4);
+        int run = 0, best = 0, prevLevel = -1000;
+        for (int x = w - 3; x >= x0; x -= 3) {
+            int p = b.getPixel(x, y);
+            int r = (p >> 16) & 255, g = (p >> 8) & 255, bl = p & 255;
+            int level = (int) (0.299 * r + 0.587 * g + 0.114 * bl);
+            boolean neutral = Math.abs(r - g) <= 12 && Math.abs(g - bl) <= 12;
+            boolean inLevel = level >= 170 && level <= 248;
+            if (neutral && inLevel && Math.abs(level - prevLevel) <= 10) run++;
+            else if (neutral && inLevel) run = 1;
+            else run = 0;
+            if (run > best) best = run;
+            prevLevel = (neutral && inLevel) ? level : -1000;
+        }
+        return best >= 4;
+    }
+
+    // Covered-band statistics of the delta cover check:
+    // {coveredRowCount, scannedRows, meanEdgeLevel} over the
+    // rows panelCovered() counts (edge row test, newly
+    // covered). Used by the capture loop's suspect
+    // confirmation: a real volume pill's band sits at system
+    // gray levels (measured means 233-245 across captures
+    // 17-19), while the photo gradient that false-fired on a
+    // news feed in capture 22 measured 224.7.
+    public static float[] panelCoverBand(Bitmap prev, Bitmap cur) {
+        if (prev == null || cur == null) return null;
+        int w = cur.getWidth();
+        int h = cur.getHeight();
+        if (w < 80 || h < 80 || prev.getWidth() != w || prev.getHeight() != h) return null;
+        int y0 = h / 10, y1 = h - h / 10;
+        int cnt = 0, total = 0;
+        double lvl = 0;
+        for (int y = y0; y < y1; y += 2) {
+            total++;
+            if (panelRowAt(cur, y) && !panelRowAt(prev, y)) {
+                cnt++;
+                lvl += grayOf(cur.getPixel(w - 3, y));
+            }
+        }
+        return new float[]{cnt, total, cnt > 0 ? (float) (lvl / cnt) : -1f};
+    }
+
+    // Stability of the suspect frame's wide panel band in a
+    // later NO-SCROLL probe of the same screen:
+    // {bandRows, persistFraction, meanChange}. A system panel
+    // is transient - within a second or two it fades (its band
+    // pixels drift toward the content) or expires (the band
+    // collapses) - while page content is pixel-stable:
+    // persistFraction near 1 and meanChange near 0. This is
+    // the temporal half of the suspect confirmation; it is
+    // what separates the volume pill from a static light photo
+    // region, which no single-frame test could tell apart
+    // (capture 22's photo band twins the sliver panels on
+    // every static statistic).
+    public static double[] panelBandStability(Bitmap suspect, Bitmap probe) {
+        if (suspect == null || probe == null) return new double[]{0, 1, 0};
+        int w = suspect.getWidth();
+        int h = suspect.getHeight();
+        if (w < 80 || h < 80 || probe.getWidth() != w || probe.getHeight() != h) {
+            return new double[]{0, 1, 0};
+        }
+        int y0 = h / 10, y1 = h - h / 10;
+        int x0 = w - (w / 4);
+        int band = 0, persist = 0;
+        double changeSum = 0;
+        int samples = 0;
+        for (int y = y0; y < y1; y += 2) {
+            if (!panelRowWide(suspect, y)) continue;
+            band++;
+            if (panelRowWide(probe, y)) persist++;
+            for (int x = w - 4; x >= x0; x -= 4) {
+                changeSum += Math.abs(grayOf(suspect.getPixel(x, y)) - grayOf(probe.getPixel(x, y)));
+                samples++;
+            }
+        }
+        if (band == 0) return new double[]{0, 1, 0};
+        return new double[]{band, (double) persist / band,
+                samples > 0 ? changeSum / samples : 0};
+    }
+
+    // A solid block anchored at the right edge on this row: the
+    // edge sample is mid-gray (170-248 - not white content
+    // background, not dark text) and at least 4 samples (~12
+    // thumb px) leftward stay within 10 gray levels of it.
+    private static boolean panelRowAt(Bitmap b, int y) {
+        int w = b.getWidth();
+        int edge = grayOf(b.getPixel(w - 3, y));
+        if (edge < 170 || edge > 248) return false;
+        int run = 0;
+        for (int x = w - 3; x > w - 68; x -= 3) {
+            if (Math.abs(grayOf(b.getPixel(x, y)) - edge) <= 10) run++;
+            else break;
+        }
+        return run >= 4;
     }
 
     // ---- Split (two-segment) stitching ------------------------------
@@ -2244,6 +2821,41 @@ public class Stitcher {
             sum += Math.abs(ga[i] - gb[i]);
         }
         return (double) sum / Math.max(1, ga.length / 4);
+    }
+
+    /**
+     * Median of the per-row mean differences at zero shift.
+     * Scrolling moves most rows; an in-place change (a list
+     * re-sorting itself, a clock ticking, a badge updating) moves
+     * few. frameDifference's global mean cannot tell the two
+     * apart - a reordered third of the screen outweighs the
+     * identical two thirds - so movement checks use this: a
+     * median near zero means the majority of the screen is
+     * pixel-identical at zero shift, i.e. the page did not
+     * scroll, however busy the changed minority looks.
+     */
+    public static double rowMedianDifference(Bitmap a, Bitmap b) {
+        if (a == null || b == null) return Double.MAX_VALUE;
+        int w = a.getWidth(), h = a.getHeight();
+        if (w != b.getWidth() || h != b.getHeight()) return Double.MAX_VALUE;
+        int rowStep = Math.max(1, h / 120);
+        int colStep = Math.max(1, w / 48);
+        double[] rows = new double[Math.max(1, h / rowStep)];
+        int n = 0;
+        for (int y = 0; y < h && n < rows.length; y += rowStep) {
+            long sum = 0;
+            int count = 0;
+            for (int x = 0; x < w; x += colStep) {
+                int pa = a.getPixel(x, y), pb = b.getPixel(x, y);
+                sum += Math.abs(((pa >> 16) & 0xff) - ((pb >> 16) & 0xff))
+                     + Math.abs(((pa >> 8) & 0xff) - ((pb >> 8) & 0xff))
+                     + Math.abs((pa & 0xff) - (pb & 0xff));
+                count += 3;
+            }
+            rows[n++] = (double) sum / Math.max(1, count);
+        }
+        java.util.Arrays.sort(rows, 0, n);
+        return n == 0 ? Double.MAX_VALUE : rows[n / 2];
     }
 
     /** Mean absolute difference of one row between two same-size bitmaps, sampled. */

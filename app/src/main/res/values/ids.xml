@@ -2,6 +2,9 @@
 <resources>
     <item type="id" name="btnAccessibility" />
     <item type="id" name="btnBack" />
+    <item type="id" name="btnClearDiag" />
+    <item type="id" name="btnDialogCancel" />
+    <item type="id" name="btnDialogOk" />
     <item type="id" name="btnLast" />
     <item type="id" name="btnManual" />
     <item type="id" name="btnNotification" />
@@ -14,6 +17,8 @@
     <item type="id" name="ivResult" />
     <item type="id" name="rowDiagnostics" />
     <item type="id" name="tvAccStatus" />
+    <item type="id" name="tvDialogMessage" />
+    <item type="id" name="tvDialogTitle" />
     <item type="id" name="tvDiagStatus" />
     <item type="id" name="tvLog" />
     <item type="id" name="tvNotifStatus" />

@@ -14,6 +14,7 @@ public class CaptureSession {
     public static volatile CaptureService captureService;
 
     public static volatile boolean capturing = false;
+    public static volatile boolean volumeStopRequested = false;
     /** True while the user is on the target page and has pressed Start on the overlay. */
     public static volatile boolean captureRequested = false;
 

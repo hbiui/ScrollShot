@@ -64,6 +64,6 @@ if [ ! -f debug.keystore ]; then
 fi
 "$BT/apksigner" sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android \
   --min-sdk-version 24 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
-  --out "$OUT/ScrollShot-1.36.0-debug.apk" "$OUT/app-aligned.apk"
-"$BT/apksigner" verify -v "$OUT/ScrollShot-1.36.0-debug.apk" && echo "VERIFY OK"
-ls -lh "$OUT/ScrollShot-1.36.0-debug.apk"
+  --out "$OUT/ScrollShot-1.39.51-debug.apk" "$OUT/app-aligned.apk"
+"$BT/apksigner" verify -v "$OUT/ScrollShot-1.39.51-debug.apk" && echo "VERIFY OK"
+ls -lh "$OUT/ScrollShot-1.39.51-debug.apk"

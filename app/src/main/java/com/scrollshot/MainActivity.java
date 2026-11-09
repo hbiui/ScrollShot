@@ -33,8 +33,16 @@ import java.util.List;
 public class MainActivity extends Activity {
 
     private static final int REQ_MEDIA_PROJECTION = 2001;
+
+    // v1.39.46: CaptureService launches MainActivity with this
+    // action when a capture's mirror pipeline is found dead at
+    // frame 1 (the starvation class: captures 45/55/59/60) -
+    // the activity goes straight to the system consent dialog
+    // so the session can be re-armed in place.
+    public static final String ACTION_RECONSENT = "com.scrollshot.action.RECONSENT";
     private static final int REQ_PICK_IMAGES = 2002;
     private static final int REQ_POST_NOTIFICATIONS = 2003;
+    private boolean pendingDeleteAfterGrant = false;
 
     private TextView tvStatus;
     private TextView tvAccStatus;
@@ -122,6 +130,11 @@ public class MainActivity extends Activity {
             }
         });
         btnStart.setOnClickListener(v -> startCapture());
+        // v1.39.46: re-consent entry (see ACTION_RECONSENT).
+        if (ACTION_RECONSENT.equals(getIntent().getAction())) {
+            getIntent().setAction(null); // consume: never relaunch on recreation
+            launchReconsent();
+        }
         btnManual.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.setType("image/*");
@@ -147,6 +160,14 @@ public class MainActivity extends Activity {
                 rowDiag.setOnClickListener(v -> chkDiagnostics.toggle());
             }
         }
+        // Delete button next to the diagnostics switch: one tap
+        // removes the whole Download/ScrollShot folder. The button
+        // is clickable itself, so tapping it does not toggle the
+        // switch through the row's click listener.
+        View btnClearDiag = findViewById(R.id.btnClearDiag);
+        if (btnClearDiag != null) {
+            btnClearDiag.setOnClickListener(v -> onClearDiagClicked());
+        }
         btnLast.setOnClickListener(v -> {
             String preview = CaptureSession.lastPreviewPath;
             if (preview != null && new java.io.File(preview).exists()) {
@@ -167,6 +188,13 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        if (pendingDeleteAfterGrant) {
+            pendingDeleteAfterGrant = false;
+            if (CaptureService.hasAllFilesAccess()
+                    && CaptureService.scrollShotFolderExists()) {
+                showDeleteConfirm();
+            }
+        }
         StringBuilder log = new StringBuilder();
         if (CaptureSession.statusText != null && !CaptureSession.statusText.isEmpty()) {
             log.append("服务状态：").append(CaptureSession.statusText).append("\n");
@@ -305,6 +333,37 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    // v1.39.46: re-consent entry points. The service sends the
+    // user here when the mirror pipeline died; go straight to
+    // the system consent dialog (the permission checks in
+    // startCapture() already passed when the session was first
+    // armed - re-running them could divert to settings pages).
+    // onActivityResult handles the result exactly like a normal
+    // arm: the fresh grant re-arms the service (ACTION_START).
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        if (intent != null) {
+            setIntent(intent);
+            if (ACTION_RECONSENT.equals(intent.getAction())) {
+                intent.setAction(null);
+                launchReconsent();
+            }
+        }
+    }
+
+    private void launchReconsent() {
+        try {
+            MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+            Intent intent = mgr.createScreenCaptureIntent();
+            CaptureSession.statusText = "录屏画面中断，正在重新授权…";
+            startActivityForResult(intent, REQ_MEDIA_PROJECTION);
+        } catch (Exception e) {
+            CaptureSession.statusText = "重新授权打开失败：" + e.getMessage();
+            Toast.makeText(this, "重新授权打开失败，请回 App 点开始重试", Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void startCapture() {
         if (!isAccessibilityEnabled()) {
             Toast.makeText(this, "请先开启无障碍服务", Toast.LENGTH_LONG).show();
@@ -335,6 +394,100 @@ public class MainActivity extends Activity {
         MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         Intent intent = mgr.createScreenCaptureIntent();
         startActivityForResult(intent, REQ_MEDIA_PROJECTION);
+    }
+
+    // Confirmation prompt in the app's own glass UI (custom
+    // layout, colors and button styles from the main screen),
+    // deliberately not the stock system AlertDialog look.
+    // okDanger renders the confirm button red.
+    private void showAppDialog(String title, String message, String okText,
+                               boolean okDanger, final Runnable onOk) {
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        View view = getLayoutInflater().inflate(R.layout.dialog_confirm, null);
+        dlg.setContentView(view);
+        if (dlg.getWindow() != null) {
+            dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                    android.graphics.Color.TRANSPARENT));
+            int w = (int) (getResources().getDisplayMetrics().widthPixels * 0.86f);
+            dlg.getWindow().setLayout(w, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        TextView tvTitle = view.findViewById(R.id.tvDialogTitle);
+        TextView tvMessage = view.findViewById(R.id.tvDialogMessage);
+        Button btnCancel = view.findViewById(R.id.btnDialogCancel);
+        Button btnOk = view.findViewById(R.id.btnDialogOk);
+        tvTitle.setText(title);
+        tvMessage.setText(message);
+        btnOk.setText(okText);
+        if (okDanger) btnOk.setBackgroundResource(R.drawable.bg_dialog_danger);
+        btnCancel.setOnClickListener(v -> dlg.dismiss());
+        btnOk.setOnClickListener(v -> {
+            dlg.dismiss();
+            if (onOk != null) onOk.run();
+        });
+        dlg.show();
+    }
+
+    // Delete flow for the Download/ScrollShot folder. With
+    // all-files access (granted once in system settings), plain
+    // file deletion removes the whole folder - including files a
+    // previous install created - so a tap is just: confirm in the
+    // app dialog, delete, done. Without the access, the first tap
+    // explains and jumps to the settings toggle; on return, the
+    // confirmation dialog comes up by itself.
+    private void onClearDiagClicked() {
+        if (!CaptureService.scrollShotFolderExists()) {
+            Toast.makeText(this, "Download/ScrollShot 文件夹不存在，无需删除",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (CaptureService.hasAllFilesAccess()) {
+            showDeleteConfirm();
+            return;
+        }
+        pendingDeleteAfterGrant = true;
+        showAppDialog("需要先开启一个权限",
+                "删除旧版本留下的文件夹，需要一次性开启「所有文件访问权限」（在系统设置里给 ScrollShot 打开）。开启后回来确认即可删除，之后每次都直接删，不再询问。",
+                "去开启", false, () -> openAllFilesSettings());
+    }
+
+    private void showDeleteConfirm() {
+        showAppDialog("删除 Download/ScrollShot",
+                "将删除该文件夹及其中的全部文件（包括旧版本留下的），确认删除？",
+                "删除", true, () -> reportFileDelete(
+                        CaptureService.deleteScrollShotDownloads()));
+    }
+
+    private void reportFileDelete(int deletedFiles) {
+        if (deletedFiles == -2) {
+            Toast.makeText(this, "已拦截：目标路径异常，未执行删除",
+                    Toast.LENGTH_LONG).show();
+        } else if (deletedFiles < 0 || !CaptureService.scrollShotFolderExists()) {
+            if (deletedFiles < 0) {
+                Toast.makeText(this, "Download/ScrollShot 文件夹不存在，无需删除",
+                        Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "已删除 Download/ScrollShot 文件夹",
+                        Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            Toast.makeText(this, "删除未完成：文件夹仍然存在（已删掉 "
+                    + deletedFiles + " 个文件）", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void openAllFilesSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+            } catch (Exception e2) {
+                pendingDeleteAfterGrant = false;
+                Toast.makeText(this, "无法打开设置，请到系统设置里手动开启「所有文件访问权限」",
+                        Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     @Override
