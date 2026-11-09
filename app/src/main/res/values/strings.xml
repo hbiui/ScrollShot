@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="accessibility_description">滚动截屏需要无障碍权限，才能在其他应用里自动滚动页面并截屏。开启后，应用只会在你点“开始”后才滚动当前页面，不会在后台偷偷操作，也不会读取密码、短信等内容。</string>
-    <string name="app_name">滚动截屏</string>
-</resources>
