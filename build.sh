@@ -11,12 +11,20 @@ if ! command -v javac >/dev/null 2>&1; then
     if [ -x "${d}bin/javac" ]; then export PATH="${d}bin:$PATH"; break; fi
   done
 fi
+
+# --- extract version info from AndroidManifest.xml ---
+VER_CODE=$(sed -n 's/.*android:versionCode="\([0-9]*\)".*/\1/p' app/src/main/AndroidManifest.xml | head -1)
+VER_NAME=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' app/src/main/AndroidManifest.xml | head -1)
+PKG_NAME=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' app/src/main/AndroidManifest.xml | head -1)
+APK_NAME="${PKG_NAME##*.}-${VER_NAME}-debug.apk"
+echo "==> Building $PKG_NAME v$VER_NAME (code $VER_CODE) -> $APK_NAME"
+
 BT="$ANDROID_HOME/build-tools/37.0.0"
 PLATFORM="$ANDROID_HOME/platforms/android-36/android.jar"
 OUT="build/manual"
 rm -rf "$OUT"
 mkdir -p "$OUT/compiled" "$OUT/gen" "$OUT/classes" "$OUT/dex"
-export TMPDIR="$HOME/workspace/.tmp"
+export TMPDIR="${TMPDIR:-$(mktemp -d)}"
 mkdir -p "$TMPDIR"
 
 echo "[1/7] aapt2 compile resources"
@@ -64,6 +72,7 @@ if [ ! -f debug.keystore ]; then
 fi
 "$BT/apksigner" sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android \
   --min-sdk-version 24 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
-  --out "$OUT/ScrollShot-1.39.51-debug.apk" "$OUT/app-aligned.apk"
-"$BT/apksigner" verify -v "$OUT/ScrollShot-1.39.51-debug.apk" && echo "VERIFY OK"
-ls -lh "$OUT/ScrollShot-1.39.51-debug.apk"
+  --out "$OUT/$APK_NAME" "$OUT/app-aligned.apk"
+"$BT/apksigner" verify -v "$OUT/$APK_NAME" && echo "VERIFY OK"
+ls -lh "$OUT/$APK_NAME"
+echo "APK_PATH=$OUT/$APK_NAME"
