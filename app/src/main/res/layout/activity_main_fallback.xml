@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView android:background="#fff2f5fb" android:padding="20.0dip" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:orientation="vertical" android:layout_width="fill_parent" android:layout_height="wrap_content">
+        <TextView android:textSize="22.0sp" android:textStyle="bold" android:layout_width="fill_parent" android:layout_height="wrap_content" android:text="ScrollShot 滚动截屏（兼容模式）" />
+        <TextView android:textSize="14.0sp" android:id="@id/tvStatus" android:background="#ffeef3fe" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:text="正在检查权限…" />
+        <Button android:id="@id/btnOneKey" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:text="一键全部授权（已授权的会跳过，不重复弹窗）" />
+        <Button android:id="@id/btnAccessibility" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:text="1. 开启无障碍服务" />
+        <Button android:id="@id/btnOverlay" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="2. 允许悬浮窗（开始 / 停止按钮）" />
+        <Button android:id="@id/btnNotification" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="3. 允许通知（截屏进行中提示）" />
+        <Button android:id="@id/btnStart" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="20.0dip" android:text="开始滚动截屏" />
+        <Button android:id="@id/btnManual" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="手动拼接：选多张截图自动拼" />
+        <Button android:id="@id/btnLast" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="查看上一张长图" />
+        <CheckBox android:textSize="13.0sp" android:id="@id/chkDiagnostics" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:text="诊断模式（保存每帧截图和检测日志到 Download/ScrollShot/debug，供排查问题；平时关着即可）" />
+        <Button android:id="@id/btnClearDiag" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="删除 Download/ScrollShot 文件夹（诊断帧图与日志）" />
+        <TextView android:textSize="12.0sp" android:id="@id/tvLog" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:text="" />
+    </LinearLayout>
+</ScrollView>
