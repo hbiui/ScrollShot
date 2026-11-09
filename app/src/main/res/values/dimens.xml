@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="ss_button_radius">16.0dip</dimen>
+    <dimen name="ss_card_gap">8.0dip</dimen>
+    <dimen name="ss_card_pad">16.0dip</dimen>
+    <dimen name="ss_card_radius">18.0dip</dimen>
+    <dimen name="ss_caption_gap">8.0dip</dimen>
+    <dimen name="ss_hairline">0.5dip</dimen>
+    <dimen name="ss_page_padding">20.0dip</dimen>
+    <dimen name="ss_primary_height">54.0dip</dimen>
+    <dimen name="ss_row_height">56.0dip</dimen>
+    <dimen name="ss_section_gap">32.0dip</dimen>
+</resources>
