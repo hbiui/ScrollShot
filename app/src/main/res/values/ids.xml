@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="id" name="btnAccessibility" />
+    <item type="id" name="btnBack" />
+    <item type="id" name="btnClearDiag" />
+    <item type="id" name="btnDialogCancel" />
+    <item type="id" name="btnDialogOk" />
+    <item type="id" name="btnLast" />
+    <item type="id" name="btnManual" />
+    <item type="id" name="btnNotification" />
+    <item type="id" name="btnOneKey" />
+    <item type="id" name="btnOverlay" />
+    <item type="id" name="btnSaveImage" />
+    <item type="id" name="btnShareIcon" />
+    <item type="id" name="btnStart" />
+    <item type="id" name="chkDiagnostics" />
+    <item type="id" name="ivResult" />
+    <item type="id" name="rowDiagnostics" />
+    <item type="id" name="tvAccStatus" />
+    <item type="id" name="tvDialogMessage" />
+    <item type="id" name="tvDialogTitle" />
+    <item type="id" name="tvDiagStatus" />
+    <item type="id" name="tvLog" />
+    <item type="id" name="tvNotifStatus" />
+    <item type="id" name="tvOverlayStatus" />
+    <item type="id" name="tvSaveHint" />
+    <item type="id" name="tvStatus" />
+    <item type="id" name="tvVersion" />
+</resources>
