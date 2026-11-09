@@ -1,9 +1,0 @@
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.application:com.android.application.gradle.plugin:8.9.0'
-    }
-}
